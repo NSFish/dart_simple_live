@@ -328,7 +328,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
         windowManager.setSize(Size(280 / aspectRatio, 280));
       }
 
-      windowManager.setAlwaysOnTop(true);
+      windowManager.setAlwaysOnTop(false);
     }
   }
 

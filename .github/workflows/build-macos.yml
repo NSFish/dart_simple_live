@@ -1,0 +1,44 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest      # Apple Silicon
+            arch: arm64
+          - runner: macos-15-intel    # Intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.x"
+          cache: true
+
+      - name: Enable Flutter Desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Restore packages
+        run: cd simple_live_app && flutter pub get
+
+      - name: Build macOS
+        run: cd simple_live_app && flutter build macos --release
+
+      - name: Zip app
+        run: |
+          cd simple_live_app/build/macos/Build/Products/Release
+          APP=$(ls -d *.app | head -1)
+          zip -q -r "SimpleLive-${{ matrix.arch }}.zip" "$APP"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SimpleLive-macOS-${{ matrix.arch }}
+          path: simple_live_app/build/macos/Build/Products/Release/*.zip
