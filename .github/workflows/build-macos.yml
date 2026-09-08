@@ -20,10 +20,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          # 必须用 3.35.x：Dart 3.10 起，media_kit 释放播放器时的 FFI 回调竞态
-          # 会变成 "Callback invoked after it has been deleted" 致命错误并 abort，
-          # 表现为关软件/切直播间时闪退。3.9 会静默忽略。见 media-kit#1348
-          flutter-version: "3.35.x"
+          # 与上游官方构建保持一致（publish_app_release.yml 用 3.38.x）。
+          # 不能降到 3.35.x：simple_live_core 要求 Dart SDK >= 3.10.0。
+          # 已知问题：Dart 3.10 起 media_kit 释放播放器时的 FFI 回调竞态会 abort，
+          # 表现为关闭软件/切换直播间时闪退（media-kit#1348），官方版同样存在。
+          flutter-version: "3.38.x"
           cache: true
 
       - name: Enable Flutter Desktop
