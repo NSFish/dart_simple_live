@@ -36,7 +36,9 @@ jobs:
         run: |
           cd simple_live_app/build/macos/Build/Products/Release
           APP=$(ls -d *.app | head -1)
-          zip -q -r "SimpleLive-${{ matrix.arch }}.zip" "$APP"
+          # 必须用 ditto：zip -r 默认展开符号链接，会把 framework 内的
+          # Versions/A 软链变成实体副本，导致 libmpv 被加载两次而崩溃
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "SimpleLive-${{ matrix.arch }}.zip"
 
       - uses: actions/upload-artifact@v4
         with:
