@@ -1090,10 +1090,28 @@ simple_live_tv_app/lib/modules/live_room/live_room_page.dart
 
 | 运行 | 分支 | 状态 | 说明 |
 |---|---|---|---|
-| [35548079896](https://github.com/NSFish/dart_simple_live/actions/runs/35548079896) | `feat/macos-keyboard-volume` | 见下方结论 | `flutter-version: 3.47.1`（与 `.fvmrc` 对齐） |
+| [35548079896](https://github.com/NSFish/dart_simple_live/actions/runs/35548079896) | `feat/macos-keyboard-volume` | ✅ **arm64 成功** / ❌ intel 失败 | `flutter-version: 3.47.1`（与 `.fvmrc` 对齐） |
 
-> **接手者注意**：构建结果与产物验证结论以实际运行为准。若本次构建失败，首要排查方向是
-> `flutter-version: 3.47.1` 是否有插件不兼容 —— 此时可回退到 master 上已验证的 `3.38.x`（见 7.7.1）。
+**结果详情**：
+
+- **arm64 腿（`macos-latest`）：成功**，耗时 7m28s，产出 `Simple Live.app (115.5MB)`
+- **intel 腿（`macos-15-intel`）：失败**，❌ `connectivity_plus-7.3.1` 的 `NWPath.isUltraConstrained` 编译错误 —— **与本次改动无关**，正是 7.5 记录的已知问题，且在 dev 上依然存在
+- ✅ **`flutter-version: 3.47.1` 可用**（无需回退到 `3.38.x`），`flutter pub get` 与编译均通过
+- ✅ **我们的改动无任何 Dart 编译错误或告警**（构建日志中针对 `simple_live_app/lib/**` 的 error/warning 为空）
+- ⚠️ 日志中的 warning 全部来自第三方插件（`flutter_inappwebview_macos`、`media_kit_video` 等），与本次改动无关
+
+**产物验证（已实际下载解压，40.9MB artifact / 43,000,013 字节）**：
+
+| 检查项 | 结果 |
+|---|---|
+| 应用版本 | `1.11.7`（dev 基线，✓ 非旧的 1.11.4） |
+| 架构 | `x86_64 arm64`（App.framework 为 universal） |
+| 签名 | `Signature=adhoc`、`TeamIdentifier=not set`、`Identifier=com.xycz.simpleLiveApp` |
+| `codesign --verify --deep --strict` | ✅ 通过（exit 0） |
+| `ditto` 符号链接保留 | ✅ `Mpv.framework/Mpv -> Versions/Current/Mpv` 等软链完整；`Versions/A/Mpv` 仅一份实体（未被复制成两份），共 75 个软链且**全部有效** |
+| **改动是否真的编进产物** | ✅ **决定性证据**：`strings App.framework/.../App \| grep -c adjustKeyboardVolume` → 新产物 **2**，本机旧版 `/Applications/Simple Live.app`（v1.11.4）→ **0** |
+
+> 符号链接数从 v1.11.4 的 117 变为 v1.11.7 的 75，是因为 Flutter 版本不同（3.38 → 3.47）导致 framework 集合变化，属正常现象；关键是**软链指向均有效**，`Mpv` 实体只有一份。
 
 **下载与安装流程**（同 7.6）：
 ```bash
@@ -1104,11 +1122,23 @@ xattr -dr com.apple.quarantine "Simple Live.app"
 open "Simple Live.app"
 ```
 
-### 12.4 下一步（待人工验证）
+> ⚠️ 首次 `gh run download` 可能超时（约 43MB），建议放后台执行。
 
-代码已实现但**尚未经过任何编译或运行验证**（本机无工具链）。必须完成的验证见第 8 节清单，其中最关键的：
+### 12.4 ⚠️ 尚未完成：人工交互验证
 
-1. **方向键是否真的被 `Focus` 截获**（这是用 `Focus` 而非 `KeyboardListener` 的唯一理由，若失效则整个方案不成立）
-2. OSD 提示 800ms 后消失、连续按键时 Timer 正确重置
-3. 打开「关键词屏蔽」弹窗后方向键用于移动光标而非调音量
-4. 调完音量点小喇叭，Slider 显示值与键盘调的值一致（验证同链路）
+**代码已编译通过，但尚未经过任何运行/交互验证。** 本机虽已有可用产物，但以下验证必须由人工完成（第 8 节清单的精华）：
+
+| # | 验证项 | 为什么关键 |
+|---|---|---|
+| 1 | **方向键是否真的被 `Focus` 截获**（既不触发焦点遍历，也不滚动列表） | 这是选用 `Focus` 而非 `KeyboardListener` 的**唯一理由**；若失效则方案不成立，需改用 `HardwareKeyboard` 全局注册（见 6.4） |
+| 2 | OSD 显示「音量 XX%」且约 800ms 后消失；连续快按时 Timer 正确重置 | 现有代码无此 Timer，是本方案新增的部分 |
+| 3 | 打开「关键词屏蔽」弹窗后，方向键用于移动光标而非调音量 | `_isEditableFocused()` 守卫是否生效 |
+| 4 | 调完音量点小喇叭，Slider 显示值与键盘调的值一致 | 证明两者走同一链路（`playerVolume`） |
+| 5 | 音量到 0/100 边界正确 clamp，不越界 | `clamp` 逻辑 |
+| 6 | 长按方向键（KeyRepeatEvent）音量连续变化且不卡顿 | 是否需要加节流 |
+| 7 | 音量持久化：调完退出直播间再进，音量保持 | `kPlayerVolume` 落盘 |
+| 8 | 锁定控制器后方向键不再调音量 | `lockControlsState` 守卫 |
+| 9 | **回归**：macOS 竖向拖拽不再弹出空的深色卡片 | 本次修复项（12.1） |
+| 10 | **回归**：Android/iOS 行为完全无变化 | 平台分支隔离 |
+
+**已知会遇到的无关问题**：关闭软件/切换直播间时可能闪退（media_kit FFI 竞态，见第 9 节），**这不是本次改动引入的，上游官方版同样存在**。
