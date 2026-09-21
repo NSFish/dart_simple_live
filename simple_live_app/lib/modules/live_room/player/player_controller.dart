@@ -543,7 +543,8 @@ mixin PlayerGestureControlMixin
     throttle = DelayedThrottle(200);
 
     verticalDragging = true;
-    if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+    // 桌面端竖向手势不处理音量/亮度，不显示手势提示（否则会留下空提示框）
+    if (Platform.isAndroid || Platform.isIOS) {
       showGestureTip.value = true;
     }
     if (Platform.isAndroid || Platform.isIOS) {
@@ -649,6 +650,45 @@ mixin PlayerGestureControlMixin
     verticalDragging = false;
     leftVerticalDrag = false;
     showGestureTip.value = false;
+  }
+
+  /// 键盘（方向键）调节音量的自动隐藏计时器
+  Timer? hideKeyboardVolumeTipTimer;
+
+  /// 键盘调节音量的步进值（与手势的 _convertVolume 保持一致，5 的倍数）
+  static const double keyboardVolumeStep = 5.0;
+
+  /// 方向键调节播放器音量
+  ///
+  /// [direction] 为 1 表示调大一步，-1 表示调小一步。
+  /// 与播放控件上的音量 Slider（[LiveRoomController.showVolumeSlider]）走
+  /// 完全相同的链路：player.setVolume + setPlayerVolume（持久化）。
+  void adjustKeyboardVolume(int direction) {
+    // 锁定控制器时忽略，与手势保持一致
+    if (lockControlsState.value) {
+      return;
+    }
+
+    final current = AppSettingsController.instance.playerVolume.value;
+    final next =
+        (current + direction * keyboardVolumeStep).clamp(0.0, 100.0).toDouble();
+    if (next == current) {
+      return;
+    }
+
+    player.setVolume(next);
+    AppSettingsController.instance.setPlayerVolume(next);
+
+    // 复用手势音量的 OSD 提示样式
+    gestureTipText.value = "音量 ${next.toInt()}%";
+    showGestureTip.value = true;
+
+    // 键盘没有「手势结束」事件，需自行控制提示消失
+    hideKeyboardVolumeTipTimer?.cancel();
+    hideKeyboardVolumeTipTimer = Timer(
+      const Duration(milliseconds: 800),
+      () => showGestureTip.value = false,
+    );
   }
 }
 

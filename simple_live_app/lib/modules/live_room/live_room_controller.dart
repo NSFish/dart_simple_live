@@ -1056,6 +1056,7 @@ ${error?.stackTrace}''');
     WidgetsBinding.instance.removeObserver(this);
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
+    hideKeyboardVolumeTipTimer?.cancel();
 
     liveDanmaku.stop();
     danmakuController = null;

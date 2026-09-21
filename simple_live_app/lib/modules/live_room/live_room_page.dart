@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:floating/floating.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:lottie/lottie.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -254,36 +255,81 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       boxFit = BoxFit.contain;
       aspectRatio = 4 / 3;
     }
-    return Stack(
-      children: [
-        Video(
-          key: controller.globalPlayerKey,
-          controller: controller.videoController,
-          pauseUponEnteringBackgroundMode:
-              AppSettingsController.instance.playerAutoPause.value,
-          resumeUponEnteringForegroundMode:
-              AppSettingsController.instance.playerAutoPause.value,
-          controls: (state) {
-            return playerControls(state, controller);
-          },
-          aspectRatio: aspectRatio,
-          fit: boxFit,
-          // 自己实现
-          wakelock: false,
-        ),
-        Obx(
-          () => Visibility(
-            visible: !controller.liveStatus.value,
-            child: const Center(
-              child: Text(
-                "未开播",
-                style: TextStyle(fontSize: 16, color: Colors.white),
+    return _buildKeyboardVolumeWrapper(
+      Stack(
+        children: [
+          Video(
+            key: controller.globalPlayerKey,
+            controller: controller.videoController,
+            pauseUponEnteringBackgroundMode:
+                AppSettingsController.instance.playerAutoPause.value,
+            resumeUponEnteringForegroundMode:
+                AppSettingsController.instance.playerAutoPause.value,
+            controls: (state) {
+              return playerControls(state, controller);
+            },
+            aspectRatio: aspectRatio,
+            fit: boxFit,
+            // 自己实现
+            wakelock: false,
+          ),
+          Obx(
+            () => Visibility(
+              visible: !controller.liveStatus.value,
+              child: const Center(
+                child: Text(
+                  "未开播",
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
+  }
+
+  /// 桌面端方向键调节音量
+  ///
+  /// 使用 [Focus] 而非 [KeyboardListener]：桌面端方向键默认会被 Flutter 的
+  /// 焦点遍历（focus traversal）消费，用来在控件间移动焦点，而
+  /// [KeyboardListener] 的 onKeyEvent 返回 void，无法声明「已消费」，
+  /// 拦不住事件继续冒泡。Focus 返回 [KeyEventResult] 才能真正截获。
+  Widget _buildKeyboardVolumeWrapper(Widget child) {
+    if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
+      return child;
+    }
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is KeyUpEvent) {
+          return KeyEventResult.ignored;
+        }
+        // 焦点在输入框（如「关键词屏蔽」弹窗）时交给输入框处理方向键
+        if (_isEditableFocused()) {
+          return KeyEventResult.ignored;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+          controller.adjustKeyboardVolume(1);
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          controller.adjustKeyboardVolume(-1);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: child,
+    );
+  }
+
+  /// 当前焦点是否落在可编辑文本上
+  static bool _isEditableFocused() {
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus == null) {
+      return false;
+    }
+    return focus.context?.widget is EditableText;
   }
 
   Widget buildUserProfile(BuildContext context) {
