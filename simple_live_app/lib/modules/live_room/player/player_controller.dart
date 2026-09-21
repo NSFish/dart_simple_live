@@ -328,7 +328,8 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
         windowManager.setSize(Size(280 / aspectRatio, 280));
       }
 
-      windowManager.setAlwaysOnTop(true);
+      // 进入小窗不再强制置顶（与 master 的 2c74f22 保持一致）
+      windowManager.setAlwaysOnTop(false);
     }
   }
 
