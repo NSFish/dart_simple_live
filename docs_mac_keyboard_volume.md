@@ -1,21 +1,23 @@
 # macOS 直播间方向键调节音量 —— 调研与实施方案
 
-> **文档性质**：纯调研 + 实施方案，**尚未落地任何代码**。
+> **文档性质**：调研 + 实施方案 + **已落地的实现记录**（代码已实现并推送到 fork，见第 12 节）。
 > **调研环境**：macOS 26.6.2 (arm64)，**未安装 Flutter / Dart / CocoaPods，且 Xcode 未完整安装**（`xcode-select -p` → `/Library/Developer/CommandLineTools`，`/Applications/Xcode*.app` 不存在），因此本机**无法编译验证**。
 > **目标**：让另一个会话里的 AI 能够仅凭本文档，完成实现、远端编译与验证。
-> **调研日期**：基于仓库 `master` 分支 @ `ba828e6`（app 版本 `1.11.4+11104`，`origin/dev` @ `bccd2ba` Dev 1.11.7）。
+> **调研基线**：代码分析基于 `master` @ `ba828e6`（v1.11.4）；**实际开发基线为 `dev` @ `bccd2ba`（v1.11.7）**，两者在本文涉及的文件上**无差异**（见 7.7.1）。
 > **远端仓库**：https://github.com/xiaoyaocz/dart_simple_live
 
 ---
 
 ## 0. 一句话结论
 
-**功能可行**：推荐做成**纯 Dart 改动**，不涉及任何 macOS 原生代码、不需要 `pod install`、不需要重新生成 `GeneratedPluginRegistrant.swift`。复用项目里已有的手势音量 OSD 提示组件，UI 零改动，但**必须自己补一个自动隐藏 Timer**（这是现有代码缺失的部分）。
+**功能可行且已实现**：纯 Dart 改动，不涉及任何 macOS 原生代码、不需要 `pod install`、不需要重新生成 `GeneratedPluginRegistrant.swift`。复用项目里已有的手势音量 OSD 提示组件，UI 零改动，但**必须自己补一个自动隐藏 Timer**（这是现有代码缺失的部分）。
 
 **编译可行，且已有成功先例**：本机无法本地构建（无 Flutter/Xcode），但**走 GitHub Actions 远端构建已被实际验证可行**。
 本机存在此前会话留下的完整产物链：fork `NSFish/dart_simple_live` + 自定义 workflow `.github/workflows/build-macos.yml` +
 已安装的 `/Applications/Simple Live.app`（v1.11.4, arm64, ad-hoc）。macOS 构建**不需要任何证书或 secrets**。
 ⚠️ 但**不能直接用上游的 `publish_app_dev.yaml`**（Android 步骤会先崩、且 `ref: dev` 写死）—— 必须用独立的 macOS-only workflow，详见第 7 节。
+
+👉 **本次实现的具体改动、提交与构建记录见第 12 节。**
 
 ---
 
@@ -1037,7 +1039,7 @@ simple_live_tv_app/lib/modules/live_room/live_room_page.dart
 | 自定义 workflow | fork 的 `.github/workflows/build-macos.yml` | ✅ 存在且跑通（见 7.3） |
 | 成功产物 | artifact `SimpleLive-macOS-arm64`（id `10038988465`，2026-09-08，90 天有效） | ✅ 有效（2026-12-07 过期）；**本次调研已实际下载并解压验证通过** |
 | 已安装 App | `/Applications/Simple Live.app` | ✅ 已装（v1.11.4, arm64, ad-hoc, 56MB，2026-09-08 安装） |
-| fork 的自定义提交 | `2c74f226` / `2db12f92` / `9807968d` / `e7b34821` | ⚠️ fork 落后上游 4 个提交，需先同步 |
+| fork 的自定义提交 | `2c74f226` / `2db12f92` / `9807968d` / `e7b34821` | ✅ fork **领先**上游 master 4 个提交（非落后，见 7.7） |
 
 **这意味着**：接手者**无需从零搭建**，可以直接复用 fork 与 workflow，只需把自己的代码改动推上去重新触发构建即可。
 
@@ -1045,3 +1047,68 @@ simple_live_tv_app/lib/modules/live_room/live_room_page.dart
 编译与验证请走**第 7 节的 GitHub Actions 路径**（无需本机工具链），验证清单见第 8 节。
 
 > 理论替代方案：`brew install --cask flutter` + 从 App Store 安装完整 Xcode（>10GB）。相比 CI 路径成本高得多，且会污染本机环境。**不推荐。**
+
+---
+
+## 12. 本次实现记录（已完成）
+
+### 12.1 改动概览
+
+**分支**：`feat/macos-keyboard-volume`（基于 `origin/dev` @ `bccd2ba`, v1.11.7）
+**Fork 远端**：`https://github.com/NSFish/dart_simple_live.git`
+
+| 文件 | 改动 |
+|---|---|
+| `simple_live_app/lib/modules/live_room/player/player_controller.dart` | +42/-1：新增 `adjustKeyboardVolume()` + `keyboardVolumeStep` + `hideKeyboardVolumeTipTimer`；修复 `onVerticalDragStart` 的 macOS 空提示框 |
+| `simple_live_app/lib/modules/live_room/live_room_page.dart` | +98/-27：新增 `_buildKeyboardVolumeWrapper()`（`Focus` 键盘监听）+ `_isEditableFocused()`；`buildMediaPlayer()` 返回值包一层 |
+| `simple_live_app/lib/modules/live_room/live_room_controller.dart` | +1：`onClose()` 取消 Timer |
+| `.github/workflows/build-macos.yml` | 新增（+50）：macOS-only CI 构建 |
+| `docs_mac_keyboard_volume.md` | 新增：本文档 |
+
+**行号定位（dev 分支）**：
+- `player_controller.dart:545-548` — `onVerticalDragStart` 的提示判断（已去掉 `isMacOS`）
+- `player_controller.dart:654-690` — 新增的键盘调音量代码
+- `live_room_page.dart:258-336` — `buildMediaPlayer` + `_buildKeyboardVolumeWrapper` + `_isEditableFocused`
+- `live_room_controller.dart:1059` — `hideKeyboardVolumeTipTimer?.cancel()`
+
+### 12.2 关键实现决策（与第 6 节的差异说明）
+
+| 项 | 第 6 节原方案 | 实际实现 | 原因 |
+|---|---|---|---|
+| 方法名 | `setKeyboardVolume(double delta)` | `adjustKeyboardVolume(int direction)` | 用 `int` 方向值语义更清晰，避免调用方传任意浮点 |
+| 步进常量 | 内联 `5` | `static const double keyboardVolumeStep = 5.0` | 便于后续调整；`static const` 可直接访问，无需实例 |
+| 挂载点 | `buildMediaPlayer()` 外层 | 同左（`_buildKeyboardVolumeWrapper`） | 保持方案 |
+| 平台判断 | `!(isMacOS \|\| isWindows \|\| isLinux)` | 同左 | 保持方案 |
+| 设置开关（6.6） | 可选 | **未实现** | 保持最小改动，确认需求后再加 |
+| 修 `main.dart:262` ESC | 可选 | **未实现** | 影响面大，单独评估 |
+
+**一处潜在类型问题已提前规避**：`num.clamp()` 的返回类型在 Dart 中为 `num`，因此写成
+`(current + direction * keyboardVolumeStep).clamp(0.0, 100.0).toDouble()`，
+显式 `.toDouble()` 以匹配 `player.setVolume(double)` 与 `playerVolume`（`Rx<double>`）。
+
+### 12.3 构建记录
+
+| 运行 | 分支 | 状态 | 说明 |
+|---|---|---|---|
+| [35548079896](https://github.com/NSFish/dart_simple_live/actions/runs/35548079896) | `feat/macos-keyboard-volume` | 见下方结论 | `flutter-version: 3.47.1`（与 `.fvmrc` 对齐） |
+
+> **接手者注意**：构建结果与产物验证结论以实际运行为准。若本次构建失败，首要排查方向是
+> `flutter-version: 3.47.1` 是否有插件不兼容 —— 此时可回退到 master 上已验证的 `3.38.x`（见 7.7.1）。
+
+**下载与安装流程**（同 7.6）：
+```bash
+gh run list --repo NSFish/dart_simple_live --limit 3
+gh run download <run-id> --repo NSFish/dart_simple_live -n SimpleLive-macOS-arm64
+unzip -q SimpleLive-macOS-arm64.zip
+xattr -dr com.apple.quarantine "Simple Live.app"
+open "Simple Live.app"
+```
+
+### 12.4 下一步（待人工验证）
+
+代码已实现但**尚未经过任何编译或运行验证**（本机无工具链）。必须完成的验证见第 8 节清单，其中最关键的：
+
+1. **方向键是否真的被 `Focus` 截获**（这是用 `Focus` 而非 `KeyboardListener` 的唯一理由，若失效则整个方案不成立）
+2. OSD 提示 800ms 后消失、连续按键时 Timer 正确重置
+3. 打开「关键词屏蔽」弹窗后方向键用于移动光标而非调音量
+4. 调完音量点小喇叭，Slider 显示值与键盘调的值一致（验证同链路）
